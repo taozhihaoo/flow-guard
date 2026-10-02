@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# FlowGuard local state (run history DB + collected artifacts)
+.flowguard/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

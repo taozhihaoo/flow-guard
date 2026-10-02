@@ -1,0 +1,21 @@
+# FlowGuard dogfooding: run FlowGuard's own quality gates with FlowGuard.
+workflow:
+  name: flowguard-self-check
+  environment:
+    PYTHONUNBUFFERED: "1"
+
+  steps:
+    - name: lint
+      command: [ruff, check, .]
+      timeout: 120
+
+    # Independent of `lint`, so both checks run in parallel.
+    - name: format-check
+      command: [ruff, format, --check, .]
+      timeout: 120
+
+    - name: test
+      # Keep pytest's scratch dir inside .flowguard/ (gitignored).
+      command: [python, -m, pytest, -q, --basetemp=.flowguard/pytest-tmp]
+      timeout: 600
+      depends_on: [lint, format-check]
