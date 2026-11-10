@@ -18,6 +18,9 @@ htmlcov/
 # FlowGuard local state (run history DB + collected artifacts)
 .flowguard/
 
+# Agent workspace metadata (session notes, not release content)
+.workbuddy/
+
 # Editors / OS
 .idea/
 .vscode/

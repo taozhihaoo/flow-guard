@@ -10,16 +10,20 @@ The API exposes the local run history and a synchronous execute endpoint:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from flowguard import __version__
+from flowguard.api.dashboard import render_dashboard
 from flowguard.config.parser import load_config, parse_config
 from flowguard.core.engine import ExecutionEngine
 from flowguard.core.exceptions import ConfigError, FlowGuardError
 from flowguard.core.models import Status
+from flowguard.i18n import detect_language, normalize_language
 from flowguard.plugins.manager import PluginManager
 
 if TYPE_CHECKING:
@@ -28,6 +32,17 @@ if TYPE_CHECKING:
 __all__ = ["router"]
 
 router = APIRouter()
+
+
+@router.get("/", response_class=HTMLResponse, include_in_schema=False)
+def dashboard(lang: str | None = None) -> HTMLResponse:
+    """Serve the built-in, bilingual web dashboard.
+
+    Kept out of the OpenAPI schema: it is a human-facing page, not part of
+    the programmatic API contract.
+    """
+    language = detect_language() if lang is None else normalize_language(lang)
+    return HTMLResponse(render_dashboard(language))
 
 
 class ExecuteRequest(BaseModel):
@@ -97,11 +112,15 @@ async def execute(body: ExecuteRequest, request: Request) -> dict[str, Any]:
     try:
         if body.config is not None:
             workflow = parse_config(body.config, source="<inline config>")
+            # No file exists to anchor relative paths; the server's CWD is
+            # the only sensible base for an inline workflow.
             config_dir = None
         else:
             assert body.path is not None
             workflow = load_config(body.path)
-            config_dir = None  # engine falls back to CWD; API runs locally
+            # Mirror the CLI: relative working_dir / artifact paths are
+            # resolved against the directory holding the workflow file.
+            config_dir = Path(body.path).expanduser().resolve().parent
     except ConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

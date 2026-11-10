@@ -22,6 +22,7 @@ import asyncio
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from pathlib import Path
 
 from flowguard.core.exceptions import SchedulerError
@@ -56,6 +57,8 @@ class ExecutionEngine:
         artifact_root: Root directory for collected artifacts. Defaults to
             ``<config_dir>/.flowguard/artifacts`` the first time a step
             declares artifacts.
+        collect_artifacts: Set to ``False`` to skip both declared artifact
+            copying and step log files (used by ``--no-artifacts``).
     """
 
     def __init__(
@@ -65,10 +68,12 @@ class ExecutionEngine:
         plugins: PluginManager | None = None,
         max_workers: int | None = None,
         artifact_root: Path | None = None,
+        collect_artifacts: bool = True,
     ) -> None:
         self.storage = storage
         self.plugins = plugins if plugins is not None else PluginManager()
         self.artifact_root = artifact_root
+        self._collect_artifacts = collect_artifacts
         self._max_workers = max_workers
         self._pool: ThreadPoolExecutor | None = None
 
@@ -106,6 +111,7 @@ class ExecutionEngine:
         self._pool = ThreadPoolExecutor(
             max_workers=self._max_workers, thread_name_prefix="flowguard-step"
         )
+        persisted = False
         try:
             if self.storage is not None:
                 self.storage.create_run(
@@ -149,11 +155,25 @@ class ExecutionEngine:
                     finished_at=finished_at,
                     duration_ms=pipeline_result.duration_ms,
                 )
+                persisted = True
             self._record_event(
                 run_id,
                 f"run finished: {overall.value} in {pipeline_result.duration_ms:.0f} ms",
             )
             return pipeline_result
+        except BaseException:
+            # A crash must not leave a run stuck at "running" in the history
+            # database forever. Record the failure, then let it propagate.
+            if self.storage is not None and not persisted:
+                finished_at = time.time()
+                with suppress(Exception):
+                    self.storage.update_run(
+                        run_id,
+                        status=Status.FAILED,
+                        finished_at=finished_at,
+                        duration_ms=(finished_at - started_at) * 1000.0,
+                    )
+            raise
         finally:
             self._pool.shutdown(wait=False, cancel_futures=True)
             self._pool = None
@@ -294,18 +314,24 @@ class ExecutionEngine:
 
         result = retries.run(attempt, step.retry)
 
-        collector = self._ensure_artifact_collector(base_dir) if step.artifacts else None
-        if collector is not None:
+        if self._collect_artifacts:
+            collector = self._ensure_artifact_collector(base_dir)
             try:
-                collected = collector.collect(
-                    context.run_id, step.name, step.artifacts, cwd=working_dir
-                )
-                result.artifacts = collected
-            except OSError as exc:
-                result.error = (result.error + "; " if result.error else "") + (
-                    f"artifact collection failed: {exc}"
-                )
-            collector.save_step_logs(context.run_id, result)
+                if step.artifacts:
+                    result.artifacts = collector.collect(
+                        context.run_id, step.name, step.artifacts, cwd=working_dir
+                    )
+                # Logs are written for *every* step, not only steps that
+                # declare artifacts — the run folder is the single place to
+                # look for step output.
+                collector.save_step_logs(context.run_id, result)
+            except (OSError, ValueError, NotImplementedError) as exc:
+                message = f"artifact collection failed: {exc}"
+                result.error = (result.error + "; " if result.error else "") + message
+                if result.succeeded:
+                    # A broken artifact pattern must not be reported as a
+                    # successful step: downstream steps may rely on it.
+                    result.status = Status.FAILED
         return result
 
     def _resolve_working_dir(self, step: Step, base_dir: Path) -> Path:

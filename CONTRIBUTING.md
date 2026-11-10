@@ -31,10 +31,19 @@ flowguard run
 ## Pull requests
 
 - Add or update tests for any behaviour change. Bug fixes must include a
-  regression test.
+  regression test (see `tests/test_regressions.py`).
 - Keep the public API typed (the package ships a `py.typed` marker) and
   validated with Pydantic models.
-- Update `README.md` and `CHANGELOG.md` for user-visible changes.
+- Update **both** `README.md` (English, default) and `README.zh-CN.md`
+  (Chinese) plus `CHANGELOG.md` for user-visible changes. Security and
+  License sections stay in English in both files.
+- UI strings live in `src/flowguard/i18n.py`. Add every key to both the
+  English and Chinese catalogs; `tests/test_i18n.py` enforces parity.
+- After changing the CLI or dashboard visuals, regenerate the four
+  language-matched screenshots with `python scripts/capture_screenshots.py`
+  (requires a Chromium-based browser; set `FLOWGUARD_BROWSER` if needed) and
+  commit the updated PNGs. `tests/test_docs.py` runs in CI to catch stale
+  or wrong-language images.
 - Error messages are part of the product: they must be human-readable and
   point at the offending step, field, or file.
 - CI must pass on all supported platforms (Linux, Windows, macOS) and

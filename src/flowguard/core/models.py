@@ -34,6 +34,26 @@ def validate_name(name: str, kind: str) -> str:
     return name
 
 
+def validate_environment(value: object) -> object:
+    """Validate an ``environment`` mapping before Pydantic coerces it.
+
+    Shared by :class:`Step` and :class:`Workflow` so both levels produce
+    the same readable message for YAML mistakes such as ``FOO: 1``.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("environment must be a mapping of variable names to values")
+    for key, val in value.items():
+        if not isinstance(key, str) or not key:
+            raise ValueError(f"environment variable names must be non-empty strings, got {key!r}")
+        if not isinstance(val, str):
+            raise ValueError(
+                f"environment variable {key!r} must map to a string, got {type(val).__name__}"
+            )
+    return value
+
+
 class Status(enum.StrEnum):
     """Lifecycle status of a step or a whole pipeline run."""
 
@@ -145,22 +165,7 @@ class Step(BaseModel):
     @field_validator("environment", mode="before")
     @classmethod
     def _check_environment(cls, value: object) -> object:
-        # Runs before core type validation so mistakes produce a readable
-        # message instead of a generic pydantic type error.
-        if value is None:
-            return {}
-        if not isinstance(value, dict):
-            raise ValueError("environment must be a mapping of variable names to values")
-        for key, val in value.items():
-            if not isinstance(key, str) or not key:
-                raise ValueError(
-                    f"environment variable names must be non-empty strings, got {key!r}"
-                )
-            if not isinstance(val, str):
-                raise ValueError(
-                    f"environment variable {key!r} must map to a string, got {type(val).__name__}"
-                )
-        return value
+        return validate_environment(value)
 
     @field_validator("depends_on", "artifacts")
     @classmethod
@@ -199,6 +204,11 @@ class Workflow(BaseModel):
     @classmethod
     def _check_name(cls, value: str) -> str:
         return validate_name(value, "workflow")
+
+    @field_validator("environment", mode="before")
+    @classmethod
+    def _check_environment(cls, value: object) -> object:
+        return validate_environment(value)
 
     @model_validator(mode="after")
     def _check_step_structure(self) -> Self:

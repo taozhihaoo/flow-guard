@@ -70,15 +70,22 @@ def _format_location(loc: tuple[Any, ...]) -> str:
 def _pydantic_error_lines(exc: ValidationError) -> list[str]:
     """Render a Pydantic ``ValidationError`` as a list of report lines.
 
-    ``value_error`` entries are skipped: those come from the Workflow
-    model's own cross-step checks, which :func:`_structural_issues`
-    reports in a cleaner form.
+    Only *model-level* ``value_error`` entries (``loc == ()``) are skipped:
+    those come from the Workflow model's cross-step checks, which
+    :func:`_structural_issues` reports in a cleaner form. Field-level
+    validator errors must be kept — dropping them used to turn an invalid
+    step name or environment value into a useless "internal error" report.
     """
     lines: list[str] = []
     for error in exc.errors():
         location = _format_location(error.get("loc", ()))
         error_type = error.get("type", "")
         if error_type == "value_error":
+            if error.get("loc") == ():
+                continue
+            message = str(error.get("msg", "invalid value"))
+            message = message.removeprefix("Value error, ")
+            lines.append(f"'{location}': {message}")
             continue
         if error_type == "missing":
             lines.append(f"'{location}' is required but missing")

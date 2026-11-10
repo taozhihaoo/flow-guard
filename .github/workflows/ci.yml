@@ -8,15 +8,25 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
 jobs:
   lint:
     name: Lint & format (ruff)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install dependencies
         run: pip install -e ".[dev]"
       - name: Ruff lint
@@ -27,6 +37,7 @@ jobs:
   test:
     name: Test py${{ matrix.python-version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -37,23 +48,94 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install dependencies
         run: pip install -e ".[dev]"
-      - name: Run test suite
-        run: pytest -q
+      - name: Run full test suite
+        run: python -m pytest -q
+      - name: Verify English UI is the default
+        run: python -c "from flowguard.i18n import detect_language; assert detect_language().value == 'en'"
+      - name: Verify Chinese UI renders
+        run: python -c "from flowguard.i18n import messages; assert messages('zh')['dash.headline'] != messages('en')['dash.headline']"
 
-  package:
-    name: Build distribution
+  ui-and-docs:
+    name: UI, i18n & documentation checks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: i18n, dashboard and documentation tests
+        run: python -m pytest tests/test_i18n.py tests/test_dashboard.py tests/test_docs.py -q
+      - name: Verify committed screenshots are real PNGs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for name in ("dashboard-en.png", "dashboard-zh.png", "cli-en.png", "cli-zh.png"):
+              path = Path("docs/screenshots") / name
+              data = path.read_bytes()
+              assert data.startswith(b"\x89PNG\r\n\x1a\n"), name
+              assert len(data) > 20_000, name
+              print(name, len(data), "bytes")
+          PY
+      - name: Verify English README has no Chinese screenshots and vice versa
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          en = Path("README.md").read_text(encoding="utf-8")
+          zh = Path("README.zh-CN.md").read_text(encoding="utf-8")
+          assert "docs/screenshots/dashboard-en.png" in en
+          assert "docs/screenshots/cli-en.png" in en
+          assert "-zh.png" not in en
+          assert "docs/screenshots/dashboard-zh.png" in zh
+          assert "docs/screenshots/cli-zh.png" in zh
+          assert "-en.png" not in zh
+          for doc in (en, zh):
+              assert "## Security" in doc and "## License" in doc
+          PY
+
+  package:
+    name: Build distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Build sdist and wheel
         run: |
           pip install build
           python -m build
+      - name: Verify sdist contents
+        run: |
+          python - <<'PY'
+          import tarfile
+          from pathlib import Path
+          archive = next(Path("dist").glob("*.tar.gz"))
+          names = tarfile.open(archive).getnames()
+          required = ("README.md", "README.zh-CN.md", "dashboard.html", "dashboard-en.png", "cli-zh.png")
+          for suffix in required:
+              assert any(name.endswith(suffix) for name in names), suffix
+          print(archive.name, "contains all documentation assets")
+          PY
+      - name: Smoke-test the installed wheel
+        run: |
+          python -m venv .venv-smoke
+          . .venv-smoke/bin/activate
+          pip install dist/*.whl
+          flowguard --version
+          flowguard --help
+          python -c "from flowguard.api.dashboard import render_dashboard; h = render_dashboard('zh'); assert len(h) > 1000 and '__FLOWGUARD_I18N__' not in h"
       - uses: actions/upload-artifact@v4
         with:
           name: dist

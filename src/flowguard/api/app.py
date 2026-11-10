@@ -18,9 +18,9 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
 
     ``db_path`` defaults to ``.flowguard/flowguard.db`` under the current
     directory; ``":memory:"`` keeps everything in RAM (handy for tests).
-    The database stays open for the lifetime of the application; the store
-    uses one connection per operation, so the API, CLI, and engine can
-    share a database file safely.
+    The database stays open for the lifetime of the application. The store
+    keeps one WAL-mode connection guarded by a lock, so the API, CLI, and
+    engine can share a database file safely.
     """
     application = FastAPI(
         title="FlowGuard API",

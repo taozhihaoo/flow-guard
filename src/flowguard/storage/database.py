@@ -4,9 +4,11 @@ Stores run summaries, per-step results (including captured stdout/stderr
 logs), and a per-run event log. The database is plain SQLite — a single
 file, no server, no external service.
 
-File databases open a fresh connection per operation (WAL mode), which
-makes the store safe to use from the engine's worker threads and the REST
-API concurrently. In-memory databases share one lock-protected connection.
+File databases keep one WAL-mode connection per ``Database`` instance,
+guarded by a re-entrant lock. That is safe from the engine's worker threads,
+avoids Windows races caused by repeatedly opening/closing WAL connections,
+and still lets separate processes share the file. In-memory databases use
+the same single-connection design so their state is visible to every caller.
 """
 
 from __future__ import annotations
@@ -77,11 +79,15 @@ def default_db_path() -> Path:
 
 
 def _open_connection(path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(path, check_same_thread=False)
+    # ``timeout`` plus an explicit busy_timeout let separate processes
+    # serialise their writes instead of failing with "database is locked".
+    # WAL is enabled once per connection in Database._init_schema; WAL
+    # connections must not be opened/closed per operation on Windows, where
+    # the resulting -wal/-shm churn produces "readonly database" errors.
+    conn = sqlite3.connect(path, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 30000")
     conn.execute("PRAGMA foreign_keys = ON")
-    with suppress(sqlite3.DatabaseError):  # memory DBs reject WAL
-        conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
@@ -96,37 +102,41 @@ class Database:
     def __init__(self, path: str | Path | None = None) -> None:
         self.path = Path(path) if path is not None else default_db_path()
         self._is_memory = str(self.path) == ":memory:"
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._memory_conn: sqlite3.Connection | None = None
+        self._file_conn: sqlite3.Connection | None = None
         if self._is_memory:
             self._memory_conn = _open_connection(":memory:")
         else:
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._file_conn = _open_connection(str(self.path))
         self._init_schema()
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
-        if self._is_memory:
-            with self._lock:
-                assert self._memory_conn is not None
-                yield self._memory_conn
-        else:
-            conn = _open_connection(str(self.path))
-            try:
-                yield conn
-            finally:
-                conn.close()
+        with self._lock:
+            conn = self._memory_conn if self._is_memory else self._file_conn
+            if conn is None:
+                raise RuntimeError("FlowGuard database is closed")
+            yield conn
 
     def _init_schema(self) -> None:
         with self._connection() as conn:
+            with suppress(sqlite3.DatabaseError):  # memory DBs reject WAL
+                conn.execute("PRAGMA journal_mode = WAL")
             conn.executescript(_SCHEMA)
             conn.commit()
 
     def close(self) -> None:
-        """Release the shared connection (in-memory mode only)."""
-        if self._memory_conn is not None:
-            self._memory_conn.close()
-            self._memory_conn = None
+        """Release the shared connection held by this store."""
+        with self._lock:
+            if self._is_memory:
+                if self._memory_conn is not None:
+                    self._memory_conn.close()
+                    self._memory_conn = None
+            elif self._file_conn is not None:
+                self._file_conn.close()
+                self._file_conn = None
 
     def __enter__(self) -> Database:
         return self

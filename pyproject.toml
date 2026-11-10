@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flowguard"
-version = "0.1.0"
+version = "0.2.0"
 description = "A local-first workflow automation engine — a lightweight, deterministic alternative to CI/CD pipelines for individual developers and small teams."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -46,6 +46,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "httpx>=0.27",
+    "httpx2>=2.0",
     "ruff>=0.5",
 ]
 
@@ -64,9 +65,23 @@ flowguard = "flowguard.cli.commands:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/flowguard"]
+# The dashboard template is data, not Python — include it explicitly so an
+# installed wheel can still serve GET /.
+artifacts = ["src/flowguard/api/dashboard.html"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "README.md", "CHANGELOG.md", "LICENSE"]
+include = [
+    "src",
+    "tests",
+    "scripts",
+    "docs/screenshots",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "LICENSE",
+    "pyproject.toml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -97,9 +112,15 @@ select = [
 ignore = [
     "SIM108", # ternary is not always clearer
 ]
+# Glyphs used deliberately by the terminal UI (status pills, arrows, rules).
+allowed-confusables = ["×", "·", "○", "—", "←", "⌁"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["SIM117"] # nested with in tests is fine
+# Chinese UI copy legitimately uses fullwidth punctuation.
+"src/flowguard/i18n.py" = ["RUF001"]
+# The screenshot generator embeds long CSS/HTML template lines.
+"scripts/*" = ["RUF001", "E501"]
 # The Plugin interface deliberately keeps every hook optional: an empty
 # subclass is a valid minimal plugin, so no hook is abstract.
 "src/flowguard/plugins/base.py" = ["B024", "B027"]

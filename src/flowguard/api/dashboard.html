@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="__LANG__">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>__TITLE__</title>
+<style>
+  :root {
+    --bg: #070b14;
+    --surface: #0e1524;
+    --surface-2: #131d30;
+    --line: #22304a;
+    --ink: #e8eefb;
+    --muted: #8296b8;
+    --dim: #5b6d8c;
+    --cyan: #22d3ee;
+    --violet: #a78bfa;
+    --green: #4ade80;
+    --red: #f87171;
+    --amber: #fbbf24;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Segoe UI", Inter, -apple-system, BlinkMacSystemFont, "PingFang SC",
+                 "Microsoft YaHei", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(720px 380px at 12% -8%, rgba(34,211,238,.16), transparent 70%),
+      radial-gradient(660px 420px at 92% 4%, rgba(167,139,250,.14), transparent 70%);
+  }
+  .shell { position: relative; z-index: 1; max-width: 1280px; margin: 0 auto; padding: 0 32px 40px; }
+
+  /* ---- top bar ---- */
+  header {
+    display: flex; align-items: center; gap: 28px;
+    height: 76px; border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 11px; cursor: default; }
+  .brand .mark {
+    width: 34px; height: 34px; border-radius: 11px;
+    display: grid; place-items: center; font-size: 19px;
+    color: #06131c;
+    background: linear-gradient(135deg, var(--cyan), var(--violet));
+    box-shadow: 0 6px 24px rgba(34,211,238,.28);
+  }
+  .brand .name {
+    font-size: 19px; font-weight: 750; letter-spacing: -.4px;
+    background: linear-gradient(90deg, #67e8f9, #c4b5fd);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .brand .ver {
+    font-size: 10px; color: var(--dim); border: 1px solid var(--line);
+    padding: 2px 7px; border-radius: 999px; margin-left: 2px;
+  }
+  nav { display: flex; gap: 4px; margin-left: 18px; }
+  nav a {
+    color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 600;
+    padding: 8px 15px; border-radius: 9px;
+  }
+  nav a.active { color: var(--ink); background: var(--surface-2); }
+  nav a:hover { color: var(--ink); }
+  .spacer { flex: 1; }
+  .live {
+    display: flex; align-items: center; gap: 7px; color: var(--muted);
+    font-size: 12px; font-weight: 600; margin-right: 6px;
+  }
+  .live i {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 0 4px rgba(74,222,128,.14);
+  }
+  .btn {
+    border: 1px solid var(--line); background: var(--surface-2); color: var(--ink);
+    border-radius: 9px; padding: 8px 14px; font-size: 12px; font-weight: 650;
+    cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 7px;
+  }
+  .btn:hover { border-color: #3b5175; background: #1a2740; }
+  .btn.primary {
+    border-color: transparent; color: #06131c;
+    background: linear-gradient(135deg, var(--cyan), #7dd3fc);
+  }
+
+  /* ---- hero ---- */
+  .hero {
+    display: flex; align-items: center; justify-content: space-between; gap: 30px;
+    padding: 42px 0 34px;
+  }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 10px; font-weight: 800; letter-spacing: 2.2px; color: var(--cyan);
+    border: 1px solid rgba(34,211,238,.28); background: rgba(34,211,238,.07);
+    padding: 5px 11px; border-radius: 999px;
+  }
+  h1 {
+    margin: 16px 0 9px; font-size: clamp(28px, 3.2vw, 40px);
+    letter-spacing: -1.3px; line-height: 1.15; font-weight: 760;
+  }
+  h1 span {
+    background: linear-gradient(90deg, #67e8f9, #c4b5fd);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 14px; margin: 0; max-width: 520px; }
+  .flow {
+    display: flex; align-items: center; gap: 0; flex-shrink: 0;
+    padding: 14px 18px; border: 1px solid var(--line); border-radius: 14px;
+    background: linear-gradient(180deg, rgba(19,29,48,.9), rgba(14,21,36,.9));
+  }
+  .flow .node {
+    display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 650;
+    color: var(--muted); padding: 9px 13px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--surface);
+  }
+  .flow .node b { width: 7px; height: 7px; border-radius: 50%; display: block; }
+  .flow .node.on { color: var(--ink); border-color: rgba(34,211,238,.35); }
+  .flow .link { width: 26px; height: 1px; background: linear-gradient(90deg, var(--cyan), var(--violet)); position: relative; }
+  .flow .link::after {
+    content: ""; position: absolute; right: -1px; top: -3px;
+    border-left: 5px solid var(--violet); border-top: 3.5px solid transparent;
+    border-bottom: 3.5px solid transparent;
+  }
+
+  /* ---- KPI cards ---- */
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .kpi {
+    position: relative; overflow: hidden;
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 22px 18px;
+  }
+  .kpi::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--cyan), var(--violet)); opacity: .85;
+  }
+  .kpi:nth-child(2)::before { background: linear-gradient(90deg, var(--green), var(--cyan)); }
+  .kpi:nth-child(3)::before { background: linear-gradient(90deg, var(--violet), #f472b6); }
+  .kpi:nth-child(4)::before { background: linear-gradient(90deg, var(--amber), var(--violet)); }
+  .kpi .label { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
+  .kpi .value { font-size: 34px; font-weight: 760; letter-spacing: -1.4px; margin: 8px 0 2px; line-height: 1.1; }
+  .kpi .value small { font-size: 15px; color: var(--muted); font-weight: 650; letter-spacing: 0; }
+  .kpi .hint { color: var(--dim); font-size: 11px; }
+  .kpi .glyph { position: absolute; right: 18px; top: 18px; font-size: 20px; opacity: .35; }
+
+  /* ---- content grid ---- */
+  .grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 16px; margin-top: 18px; }
+  .card {
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+  }
+  .card-head { padding: 19px 22px 15px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; }
+  .card-head h2 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.2px; }
+  .card-head p { margin: 0; color: var(--dim); font-size: 11px; }
+  .card-head .tag { margin-left: auto; color: var(--dim); font-size: 11px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left; padding: 11px 14px; color: var(--dim); font-size: 10px;
+    font-weight: 750; letter-spacing: 1px; text-transform: uppercase;
+    border-bottom: 1px solid var(--line); white-space: nowrap;
+  }
+  thead th:first-child, tbody td:first-child { padding-left: 22px; }
+  thead th:last-child, tbody td:last-child { padding-right: 22px; }
+  tbody td { padding: 12px 14px; border-bottom: 1px solid rgba(34,48,74,.55); font-size: 12.5px; white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr { cursor: pointer; transition: background .15s; }
+  tbody tr:hover { background: rgba(34,211,238,.045); }
+  tbody tr.selected { background: rgba(34,211,238,.09); box-shadow: inset 2px 0 0 var(--cyan); }
+  .mono { font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; color: var(--cyan); font-size: 11.5px; }
+  .wf { font-weight: 650; color: var(--ink); }
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+    border-radius: 999px; font-size: 10.5px; font-weight: 750; letter-spacing: .2px;
+  }
+  .pill.succeeded { color: #052e1b; background: var(--green); }
+  .pill.failed { color: #3b0a0a; background: var(--red); }
+  .pill.timeout { color: #3a2500; background: var(--amber); }
+  .pill.skipped { color: #27364a; background: #94a3b8; }
+  .pill.running { color: #06263a; background: #38bdf8; }
+  .pill.pending { color: #1e293b; background: #64748b; }
+  .muted { color: var(--muted); }
+  .right { text-align: right; }
+
+  .detail-body { padding: 18px 22px 22px; min-height: 210px; }
+  .detail-meta { display: flex; flex-wrap: wrap; gap: 10px 26px; margin-bottom: 16px; }
+  .detail-meta div { font-size: 11px; color: var(--dim); }
+  .detail-meta b { display: block; color: var(--ink); font-size: 12px; font-weight: 650; margin-top: 2px; }
+  .step-row {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px;
+    background: rgba(7,11,20,.45);
+  }
+  .step-row .dot { width: 18px; height: 18px; border-radius: 6px; display: grid; place-items: center; font-size: 10px; font-weight: 800; }
+  .step-row .dot.succeeded { background: rgba(74,222,128,.18); color: var(--green); }
+  .step-row .dot.failed { background: rgba(248,113,113,.18); color: var(--red); }
+  .step-row .dot.timeout { background: rgba(251,191,36,.18); color: var(--amber); }
+  .step-row .dot.skipped { background: rgba(148,163,184,.18); color: #94a3b8; }
+  .step-row .nm { font-weight: 650; font-size: 12.5px; }
+  .step-row .sp { flex: 1; }
+  .step-row .tm { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .empty { text-align: center; padding: 46px 16px; color: var(--dim); }
+  .empty .big { font-size: 26px; margin-bottom: 8px; opacity: .55; }
+  .empty h3 { margin: 0 0 5px; color: var(--muted); font-size: 14px; }
+  .empty p { margin: 0; font-size: 12px; }
+  .empty code { color: var(--cyan); background: rgba(34,211,238,.08); padding: 2px 6px; border-radius: 5px; }
+
+  footer {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line);
+    color: var(--dim); font-size: 11px;
+  }
+  footer .api { font-family: "Cascadia Code", Consolas, monospace; }
+  @media (max-width: 1000px) {
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .grid { grid-template-columns: 1fr; }
+    .flow { display: none; }
+  }
+</style>
+</head>
+<body>
+<script id="flowguard-i18n" type="application/json">__FLOWGUARD_I18N__</script>
+<div class="shell">
+  <header>
+    <div class="brand">
+      <div class="mark">⬡</div>
+      <div class="name">FlowGuard</div>
+      <div class="ver" id="version"></div>
+    </div>
+    <nav>
+      <a class="active" href="#" data-i18n="dash.nav.overview"></a>
+      <a href="#runs" data-i18n="dash.nav.runs"></a>
+      <a href="/docs" data-i18n="dash.nav.api"></a>
+    </nav>
+    <div class="spacer"></div>
+    <div class="live"><i></i><span data-i18n="dash.live"></span></div>
+    <a class="btn" id="lang-toggle" href="#"></a>
+    <button class="btn primary" id="refresh">↻ <span data-i18n="dash.btn.refresh"></span></button>
+  </header>
+
+  <section class="hero">
+    <div>
+      <div class="eyebrow"><span>◆</span><span data-i18n="dash.eyebrow"></span></div>
+      <h1><span data-i18n="dash.headline"></span></h1>
+      <p class="sub" data-i18n="dash.subhead"></p>
+    </div>
+    <div class="flow" aria-hidden="true">
+      <div class="node on"><b style="background:#4ade80"></b>install</div>
+      <div class="link"></div>
+      <div class="node on"><b style="background:#4ade80"></b>test</div>
+      <div class="link"></div>
+      <div class="node"><b style="background:#a78bfa"></b>build</div>
+    </div>
+  </section>
+
+  <section class="kpis">
+    <div class="kpi">
+      <div class="glyph">◫</div>
+      <div class="label" data-i18n="dash.kpi.runs"></div>
+      <div class="value" id="kpi-runs">0</div>
+      <div class="hint" data-i18n="dash.kpi.hint_runs"></div>
+    </div>
+    <div class="kpi">
+      <div class="glyph">◎</div>
+      <div class="label" data-i18n="dash.kpi.success"></div>
+      <div class="value" id="kpi-success">0<small>%</small></div>
+      <div class="hint" data-i18n="dash.kpi.hint_success"></div>
+    </div>
+    <div class="kpi">
+      <div class="glyph">⌘</div>
+      <div class="label" data-i18n="dash.kpi.steps"></div>
+      <div class="value" id="kpi-steps">0</div>
+      <div class="hint" data-i18n="dash.kpi.hint_steps"></div>
+    </div>
+    <div class="kpi">
+      <div class="glyph">◷</div>
+      <div class="label" data-i18n="dash.kpi.avg"></div>
+      <div class="value" id="kpi-avg">0<small>s</small></div>
+      <div class="hint" data-i18n="dash.kpi.hint_avg"></div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card" id="runs">
+      <div class="card-head">
+        <h2 data-i18n="dash.section.runs"></h2>
+        <p data-i18n="dash.section.runs_sub"></p>
+        <span class="tag" id="run-count"></span>
+      </div>
+      <table>
+        <thead><tr>
+          <th data-i18n="dash.col.run"></th>
+          <th data-i18n="dash.col.workflow"></th>
+          <th data-i18n="dash.col.status"></th>
+          <th class="right" data-i18n="dash.col.steps"></th>
+          <th class="right" data-i18n="dash.col.duration"></th>
+          <th class="right" data-i18n="dash.col.started"></th>
+        </tr></thead>
+        <tbody id="runs-body"></tbody>
+      </table>
+      <div class="empty" id="runs-empty" hidden>
+        <div class="big">◌</div>
+        <h3 data-i18n="dash.empty.title"></h3>
+        <p data-i18n="dash.empty.body"></p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2 data-i18n="dash.section.detail"></h2>
+        <p data-i18n="dash.section.detail_sub"></p>
+      </div>
+      <div class="detail-body" id="detail">
+        <div class="empty">
+          <div class="big">◇</div>
+          <p data-i18n="dash.detail.empty"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span data-i18n="dash.footer"></span>
+    <span class="api">/health · /runs · /runs/{id} · /execute</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const catalog = JSON.parse(document.getElementById("flowguard-i18n").textContent);
+  const t = (key) => catalog[key] || key;
+  const $ = (id) => document.getElementById(id);
+
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.getAttribute("data-i18n"));
+  });
+  $("version").textContent = "v" + catalog.__version__;
+  $("lang-toggle").textContent = t("dash.lang.switch");
+  $("lang-toggle").href = "?lang=" + (catalog.__lang__ === "zh" ? "en" : "zh");
+
+  const statusLabel = (s) => t("status." + s);
+  const fmtDuration = (ms) => {
+    ms = Number(ms) || 0;
+    if (ms < 1000) return Math.round(ms) + "ms";
+    const s = ms / 1000;
+    if (s < 60) return s.toFixed(1) + "s";
+    const m = Math.floor(s / 60);
+    return m + "m " + (s - m * 60).toFixed(0) + "s";
+  };
+  const fmtDate = (epoch) => {
+    const d = new Date(Number(epoch) * 1000);
+    const p = (n) => String(n).padStart(2, "0");
+    return p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+  };
+  const el = (tag, cls, text) => {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+  const pill = (status) => {
+    const p = el("span", "pill " + status);
+    p.textContent = statusLabel(status);
+    return p;
+  };
+
+  let runs = [];
+  let selected = null;
+
+  function renderKpis(list) {
+    $("kpi-runs").textContent = list.length;
+    const finished = list.filter((r) => ["succeeded", "failed", "timeout"].includes(r.status));
+    const ok = finished.filter((r) => r.status === "succeeded").length;
+    const rate = finished.length ? Math.round((ok / finished.length) * 100) : 0;
+    $("kpi-success").innerHTML = rate + "<small>%</small>";
+    $("kpi-steps").textContent = list.reduce((n, r) => n + (r.total_steps || 0), 0);
+    const avg = list.length
+      ? list.reduce((n, r) => n + (Number(r.duration_ms) || 0), 0) / list.length / 1000
+      : 0;
+    $("kpi-avg").innerHTML = avg.toFixed(1) + "<small>s</small>";
+    $("run-count").textContent = list.length + " / " + list.length;
+  }
+
+  function renderRuns(list) {
+    const body = $("runs-body");
+    body.replaceChildren();
+    $("runs-empty").hidden = list.length > 0;
+    list.forEach((run) => {
+      const tr = el("tr");
+      if (run.run_id === selected) tr.className = "selected";
+      tr.appendChild(el("td", "mono", run.run_id));
+      tr.appendChild(el("td", "wf", run.workflow_name));
+      const statusCell = el("td");
+      statusCell.appendChild(pill(run.status));
+      tr.appendChild(statusCell);
+      tr.appendChild(el("td", "right muted", String(run.total_steps || 0)));
+      tr.appendChild(el("td", "right muted", fmtDuration(run.duration_ms)));
+      tr.appendChild(el("td", "right muted", fmtDate(run.started_at)));
+      tr.addEventListener("click", () => selectRun(run.run_id));
+      body.appendChild(tr);
+    });
+  }
+
+  async function selectRun(id) {
+    selected = id;
+    renderRuns(runs);
+    const panel = $("detail");
+    try {
+      const response = await fetch("/runs/" + encodeURIComponent(id));
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const data = await response.json();
+      panel.replaceChildren();
+      const meta = el("div", "detail-meta");
+      const add = (label, value) => {
+        const box = el("div");
+        box.appendChild(document.createTextNode(label));
+        box.appendChild(el("b", "", value));
+        meta.appendChild(box);
+      };
+      add(t("dash.col.run"), data.run.run_id);
+      add(t("dash.col.workflow"), data.run.workflow_name);
+      add(t("dash.col.status"), statusLabel(data.run.status));
+      add(t("dash.col.duration"), fmtDuration(data.run.duration_ms));
+      panel.appendChild(meta);
+      (data.steps || []).forEach((step) => {
+        const row = el("div", "step-row");
+        row.appendChild(el("span", "dot " + step.status, step.status === "succeeded" ? "✓" : step.status === "failed" ? "×" : "·"));
+        row.appendChild(el("span", "nm", step.step_name));
+        row.appendChild(el("span", "sp"));
+        row.appendChild(pill(step.status));
+        row.appendChild(el("span", "tm", fmtDuration(step.duration_ms)));
+        panel.appendChild(row);
+      });
+      if (!(data.steps || []).length) {
+        panel.appendChild(el("div", "empty", t("dash.detail.empty")));
+      }
+    } catch (error) {
+      panel.replaceChildren(el("div", "empty", "— " + error.message));
+    }
+  }
+
+  async function load() {
+    try {
+      const response = await fetch("/runs?limit=200");
+      const data = await response.json();
+      runs = (data.runs || []).slice(0, 9);
+      renderKpis(data.runs || []);
+      renderRuns(runs);
+      if (runs.length) await selectRun(runs[0].run_id);
+    } catch (error) {
+      $("runs-body").replaceChildren();
+      $("runs-empty").hidden = true;
+    }
+  }
+
+  $("refresh").addEventListener("click", load);
+  load();
+})();
+</script>
+</body>
+</html>

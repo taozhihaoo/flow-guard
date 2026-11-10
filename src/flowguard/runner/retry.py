@@ -50,10 +50,16 @@ class RetryExecutor:
 
         The returned result records the total number of attempts made in
         ``attempts``. When every attempt fails, the last result is returned
-        as-is (its ``error`` message describes the final failure).
+        with its ``error`` message describing the final failure. Output
+        from earlier attempts is preserved as a labelled transcript, and
+        ``started_at`` / ``duration_ms`` describe the whole retry sequence
+        rather than only the final attempt.
         """
+        wall_start = time.monotonic()
         result = runner()
         result.attempts = 1
+        first_started_at = result.started_at
+        transcripts: list[tuple[int, str, str]] = [(1, result.stdout, result.stderr)]
         attempt = 1
         while attempt < policy.attempts and should_retry(result):
             delay = policy.delay_for(attempt)
@@ -62,4 +68,20 @@ class RetryExecutor:
             attempt += 1
             result = runner()
             result.attempts = attempt
+            transcripts.append((attempt, result.stdout, result.stderr))
+
+        if len(transcripts) > 1:
+            result.started_at = first_started_at
+            result.stdout = _join_transcript(transcripts, field="stdout")
+            result.stderr = _join_transcript(transcripts, field="stderr")
+            result.duration_ms = (time.monotonic() - wall_start) * 1000.0
         return result
+
+
+def _join_transcript(transcripts: list[tuple[int, str, str]], *, field: str) -> str:
+    """Combine per-attempt output, keeping empty transcripts untouched."""
+    index = 1 if field == "stdout" else 2
+    if not any(entry[index] for entry in transcripts):
+        return ""
+    total = len(transcripts)
+    return "\n".join(f"--- attempt {entry[0]}/{total} ---\n{entry[index]}" for entry in transcripts)

@@ -1,0 +1,11 @@
+{
+  "generated_by": "scripts/capture_screenshots.py",
+  "languages": [
+    "en",
+    "zh"
+  ],
+  "views": [
+    "dashboard",
+    "cli"
+  ]
+}

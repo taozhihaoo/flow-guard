@@ -10,11 +10,17 @@ macOS. Command dispatch rules:
   single-element list containing a full command line such as
   ``["npm install"]``, which could only ever fail as a single argv token
   and is therefore routed through the shell.
+
+Timeouts terminate the *whole process tree*, not just the direct child.
+Shell commands spawn grandchildren, and killing only ``cmd.exe`` or
+``/bin/sh`` leaves the real work running (and holding the output pipes
+open). POSIX uses a dedicated process group; Windows uses ``taskkill /T``.
 """
 
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -26,11 +32,41 @@ from flowguard.core.models import Status, Step, StepResult
 __all__ = ["CommandExecutor"]
 
 
-def _kill_process(process: subprocess.Popen[str]) -> None:
-    """Terminate *process* as forcefully as the platform allows."""
-    # An OSError here means the process already exited between timeout and kill.
+def _popen_kwargs() -> dict[str, object]:
+    """Platform-specific options that let us kill a whole process tree."""
+    if os.name == "posix":
+        # The child becomes the leader of a fresh process group, so
+        # killpg() reaches the shell *and* every descendant it spawned.
+        return {"start_new_session": True}
+    return {}
+
+
+def _kill_process_tree(process: subprocess.Popen[str]) -> None:
+    """Terminate *process* and every descendant as forcefully as possible."""
+    if os.name == "posix":
+        with suppress(ProcessLookupError, PermissionError, OSError):
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    else:
+        # taskkill /T walks the process tree rooted at the shell. It is
+        # best-effort: the direct kill below still handles the simple case
+        # (e.g. when taskkill is unavailable in a stripped container).
+        with suppress(OSError, subprocess.SubprocessError):
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
     with suppress(OSError):
         process.kill()
+
+
+def _close_pipes(process: subprocess.Popen[str]) -> None:
+    for pipe in (process.stdout, process.stderr):
+        if pipe is not None:
+            with suppress(OSError):
+                pipe.close()
 
 
 def _prepare_command(command: str | list[str]) -> tuple[str | list[str], bool]:
@@ -64,8 +100,8 @@ class CommandExecutor:
             cwd: Working directory for the child process. Falls back to
                 ``step.working_dir`` and then to the current directory.
             timeout: Wall-clock limit in seconds; defaults to the step's
-                own ``timeout``. On expiry the process is killed and the
-                result status is :attr:`Status.TIMEOUT`.
+                own ``timeout``. On expiry the process group is killed and
+                the result status is :attr:`Status.TIMEOUT`.
 
         The returned result always records ``stdout``, ``stderr``, exit
         code (when the process was started), duration, and timestamps.
@@ -89,6 +125,7 @@ class CommandExecutor:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                **_popen_kwargs(),
             )
         except OSError as exc:
             finished_at = time.time()
@@ -102,15 +139,29 @@ class CommandExecutor:
             )
 
         timed_out = False
+        stdout, stderr = "", ""
         try:
             stdout, stderr = process.communicate(timeout=effective_timeout)
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             timed_out = True
-            _kill_process(process)
+            # Whatever the child produced before being killed is still
+            # useful for diagnosing the timeout.
+            stdout, stderr = exc.stdout or "", exc.stderr or ""
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode("utf-8", errors="replace")
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode("utf-8", errors="replace")
+            _kill_process_tree(process)
             try:
-                stdout, stderr = process.communicate(timeout=10)
-            except subprocess.TimeoutExpired:  # pragma: no cover - defensive
-                stdout, stderr = "", ""
+                captured_stdout, captured_stderr = process.communicate(timeout=2)
+                stdout += captured_stdout or ""
+                stderr += captured_stderr or ""
+            except (subprocess.TimeoutExpired, OSError, ValueError):
+                # Pipes may be held by a detached descendant. Close them so
+                # the executor never blocks past the configured timeout.
+                _close_pipes(process)
+                with suppress(OSError, subprocess.TimeoutExpired):
+                    process.wait(timeout=1)
 
         finished_at = time.time()
         exit_code = process.returncode

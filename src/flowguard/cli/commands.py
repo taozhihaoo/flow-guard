@@ -6,10 +6,13 @@ Commands:
     flowguard run        Execute a workflow locally.
     flowguard history    Browse past runs stored in the local database.
     flowguard show       Show one run in detail.
-    flowguard serve      Expose the REST API over HTTP.
+    flowguard serve      Expose the REST API and web dashboard over HTTP.
 
-All output is rendered with Rich: coloured status, aligned tables, and
-human-readable error panels.
+All output is rendered with Rich through a shared visual system
+(:mod:`flowguard.cli.presentation`): a gradient wordmark, rounded panels,
+colour-coded status pills, dependency-graph previews, and compact data
+tables. ``--lang`` / ``FLOWGUARD_LANG`` switches the whole UI between
+English (default) and Chinese.
 """
 
 from __future__ import annotations
@@ -19,11 +22,13 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
+from rich.text import Text
 
 from flowguard import __version__
+from flowguard.cli import presentation as ui
 from flowguard.config.parser import (
     DEFAULT_FILENAME,
     find_config_file,
@@ -31,8 +36,9 @@ from flowguard.config.parser import (
 )
 from flowguard.core.engine import ExecutionEngine
 from flowguard.core.exceptions import ConfigError, FlowGuardError
-from flowguard.core.models import PipelineResult, Status, Workflow
+from flowguard.core.models import Status, Workflow
 from flowguard.core.scheduler import DAG
+from flowguard.i18n import Language, detect_language, messages, normalize_language
 from flowguard.storage.database import Database, default_db_path
 
 app = typer.Typer(
@@ -44,14 +50,8 @@ app = typer.Typer(
 console = Console()
 err_console = Console(stderr=True)
 
-_STATUS_STYLES: dict[Status, str] = {
-    Status.SUCCEEDED: "bold green",
-    Status.FAILED: "bold red",
-    Status.TIMEOUT: "bold yellow",
-    Status.SKIPPED: "dim",
-    Status.RUNNING: "bold cyan",
-    Status.PENDING: "white",
-}
+#: Active UI language. Set by the top-level callback before any command runs.
+_LANG: Language = Language.EN
 
 _INIT_TEMPLATE = """\
 # FlowGuard workflow definition.
@@ -89,6 +89,16 @@ workflow:
 """
 
 
+def _s(key: str) -> str:
+    """Translate a UI key using the active language."""
+    return messages(_LANG)[key]
+
+
+def _set_language(value: str | None) -> None:
+    global _LANG
+    _LANG = normalize_language(value) if value else detect_language()
+
+
 def _version_callback(value: bool) -> None:
     if value:
         console.print(f"flowguard {__version__}")
@@ -106,8 +116,17 @@ def _main(
             help="Show the FlowGuard version and exit.",
         ),
     ] = None,
+    lang: Annotated[
+        str | None,
+        typer.Option(
+            "--lang",
+            envvar="FLOWGUARD_LANG",
+            help="UI language: en (default) or zh. Also reads FLOWGUARD_LANG.",
+        ),
+    ] = None,
 ) -> None:
     """FlowGuard — a local workflow automation engine."""
+    _set_language(lang)
 
 
 def _resolve_config(path: Path | None) -> Path:
@@ -122,7 +141,7 @@ def _load_workflow(path: Path | None) -> tuple[Workflow, Path]:
     try:
         return load_config(config_path), config_path
     except ConfigError as exc:
-        err_console.print(Panel(str(exc), title="Configuration error", border_style="red"))
+        err_console.print(ui.error_panel(str(exc), lang=_LANG, title=_s("cli.config_error")))
         raise typer.Exit(code=1) from exc
 
 
@@ -136,9 +155,10 @@ def _parse_env_overrides(pairs: list[str]) -> dict[str, str]:
         name, separator, value = pair.partition("=")
         if not separator or not name:
             err_console.print(
-                Panel(
-                    f"Invalid --env value {pair!r}: expected KEY=VALUE.",
-                    border_style="red",
+                ui.error_panel(
+                    f"Invalid --env value {pair!r}: {_s('cli.env_invalid')} (KEY=VALUE).",
+                    lang=_LANG,
+                    title="FlowGuard",
                 )
             )
             raise typer.Exit(code=2)
@@ -152,11 +172,12 @@ def _select_steps(workflow: Workflow, requested: list[str]) -> Workflow:
     missing = sorted(set(requested) - known)
     if missing:
         err_console.print(
-            Panel(
-                "Unknown step(s): "
+            ui.error_panel(
+                f"{_s('cli.unknown_steps')}: "
                 + ", ".join(repr(name) for name in missing)
-                + f"\nAvailable steps: {', '.join(workflow.step_names)}",
-                border_style="red",
+                + f"\n{_s('cli.available_steps')}: {', '.join(workflow.step_names)}",
+                lang=_LANG,
+                title="FlowGuard",
             )
         )
         raise typer.Exit(code=2)
@@ -173,20 +194,6 @@ def _select_steps(workflow: Workflow, requested: list[str]) -> Workflow:
     return workflow.model_copy(update={"steps": steps})
 
 
-def _format_duration(ms: float) -> str:
-    if ms < 1000:
-        return f"{ms:.0f}ms"
-    seconds = ms / 1000
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    minutes, rem = divmod(seconds, 60)
-    return f"{int(minutes)}m {rem:04.1f}s"
-
-
-def _style(status: Status) -> str:
-    return _STATUS_STYLES.get(status, "white")
-
-
 # -- commands ------------------------------------------------------------------
 
 
@@ -200,17 +207,28 @@ def init(
     """Create a starter .flowguard.yml to edit for your project."""
     if path.exists() and not force:
         err_console.print(
-            Panel(
-                f"{path} already exists. Use --force to overwrite it.",
-                border_style="yellow",
+            ui.error_panel(
+                f"{path} {_s('cli.init.exists')}",
+                lang=_LANG,
+                title="FlowGuard",
+                hint="flowguard init --force",
             )
         )
         raise typer.Exit(code=1)
-    path.write_text(_INIT_TEMPLATE, encoding="utf-8")
-    console.print(f"[green]Created[/green] {path}")
-    console.print(
-        "Edit it, then run [bold]flowguard validate[/bold] and [bold]flowguard run[/bold]."
-    )
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_INIT_TEMPLATE, encoding="utf-8")
+    except OSError as exc:
+        err_console.print(
+            ui.error_panel(
+                f"{_s('cli.init.write_failed')} {path}: {exc}",
+                lang=_LANG,
+                title="FlowGuard",
+            )
+        )
+        raise typer.Exit(code=1) from exc
+    console.print(ui.brand_header(_LANG))
+    console.print(ui.init_panel(str(path), _LANG))
 
 
 @app.command()
@@ -219,14 +237,10 @@ def validate(
 ) -> None:
     """Validate a workflow file without running it."""
     workflow, config_path = _load_workflow(path)
-    table = Table(title=None, show_header=False, box=None, padding=(0, 1))
-    table.add_row("[green]✓[/green]", f"{config_path}")
-    table.add_row("[green]✓[/green]", f"workflow [bold]{workflow.name}[/bold]")
-    table.add_row("[green]✓[/green]", f"{len(workflow.steps)} step(s)")
-    for step in workflow.steps:
-        deps = f" (depends on {', '.join(step.depends_on)})" if step.depends_on else ""
-        table.add_row("", f"  • [bold]{step.name}[/bold]{deps}")
-    console.print(Panel(table, title="Workflow is valid", border_style="green", expand=False))
+    dag = DAG.from_workflow(workflow)
+    dag.topological_order()
+    console.print(ui.brand_header(_LANG))
+    console.print(ui.validate_panel(workflow, str(config_path), dag, _LANG))
 
 
 @app.command()
@@ -255,9 +269,18 @@ def run(
 
     database = _open_db(db)
     engine = _build_engine(database, no_parallel=no_parallel, no_artifacts=no_artifacts)
+    levels = DAG.from_workflow(workflow).levels()
+
+    console.print(ui.brand_header(_LANG))
     console.print(
-        f"[bold]Running workflow[/bold] [cyan]{workflow.name}[/cyan] "
-        f"({len(workflow.steps)} step(s)) from {config_path}"
+        ui.run_header(
+            workflow.name,
+            str(config_path),
+            step_count=len(workflow.steps),
+            level_count=len(levels),
+            parallel=not no_parallel,
+            lang=_LANG,
+        )
     )
 
     try:
@@ -269,23 +292,17 @@ def run(
             )
         )
     except FlowGuardError as exc:
-        err_console.print(Panel(str(exc), title="Execution error", border_style="red"))
+        err_console.print(ui.error_panel(str(exc), lang=_LANG, title=_s("cli.execution_error")))
         raise typer.Exit(code=1) from exc
     except KeyboardInterrupt:
-        err_console.print("\n[bold yellow]Interrupted.[/bold yellow]")
+        err_console.print(Text(f"\n  !  {_s('cli.interrupted')}", style="bold #fbbf24"))
         raise typer.Exit(code=130) from None
 
-    _print_run_table(result)
-    if result.succeeded:
-        console.print(
-            f"\n[bold green]✓ Pipeline succeeded[/bold green] "
-            f"({_format_duration(result.duration_ms)})"
-        )
-    else:
-        console.print(
-            f"\n[bold red]✗ Pipeline failed[/bold red] "
-            f"({_format_duration(result.duration_ms)}) — run {result.run_id}"
-        )
+    console.print(ui.results_table(result, _LANG))
+    for panel in ui.failure_detail_panels(result, _LANG):
+        console.print(panel)
+    console.print(ui.summary_panel(result, _LANG))
+    if not result.succeeded:
         raise typer.Exit(code=1)
 
 
@@ -293,24 +310,9 @@ def _build_engine(database: Database, *, no_parallel: bool, no_artifacts: bool) 
     return ExecutionEngine(
         storage=database,
         max_workers=1 if no_parallel else None,
-        artifact_root=None if no_artifacts else Path(".flowguard") / "artifacts",
+        artifact_root=Path(".flowguard") / "artifacts",
+        collect_artifacts=not no_artifacts,
     )
-
-
-def _print_run_table(result: PipelineResult) -> None:
-    table = Table(title=f"Run {result.run_id}", header_style="bold")
-    table.add_column("Step", style="bold")
-    table.add_column("Status")
-    table.add_column("Duration", justify="right")
-    table.add_column("Attempts", justify="right")
-    for step_result in result.step_results:
-        table.add_row(
-            step_result.step_name,
-            f"[{_style(step_result.status)}]{step_result.status.value}[/]",
-            _format_duration(step_result.duration_ms),
-            str(step_result.attempts) if step_result.attempts else "—",
-        )
-    console.print(table)
 
 
 @app.command()
@@ -327,33 +329,21 @@ def history(
     """List recent workflow runs recorded in the local database."""
     database = _open_db(db)
     runs = database.list_runs(limit=limit, workflow_name=workflow, status=status)
+    console.print(ui.brand_header(_LANG))
     if not runs:
-        console.print("[dim]No runs recorded yet. Try 'flowguard run'.[/dim]")
+        console.print(_empty_history_panel())
         return
-    table = Table(title="Run history", header_style="bold")
-    table.add_column("Run", style="cyan")
-    table.add_column("Workflow", style="bold")
-    table.add_column("Status")
-    table.add_column("Steps", justify="right")
-    table.add_column("Duration", justify="right")
-    table.add_column("Started")
-    for entry in runs:
-        run_status = Status(entry["status"])
-        table.add_row(
-            entry["run_id"],
-            entry["workflow_name"],
-            f"[{_style(run_status)}]{run_status.value}[/]",
-            str(entry["total_steps"]),
-            _format_duration(entry["duration_ms"] or 0.0),
-            _format_timestamp(entry["started_at"]),
-        )
-    console.print(table)
+    console.print(ui.history_table(runs, lang=_LANG, total=database.count_runs()))
 
 
-def _format_timestamp(epoch: float) -> str:
-    from datetime import datetime
-
-    return datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S")
+def _empty_history_panel() -> Panel:
+    """Quiet, non-alarming empty state for ``flowguard history``."""
+    return Panel(
+        Text(f"  ○  {_s('cli.run.no_runs')}", style="#7c93b8"),
+        box=box.ROUNDED,
+        border_style="#2b3a55",
+        padding=(0, 1),
+    )
 
 
 @app.command()
@@ -364,54 +354,26 @@ def show(
     """Show detailed results for a single run."""
     database = _open_db(db)
     record = database.get_run(run_id)
+    console.print(ui.brand_header(_LANG))
     if record is None:
-        err_console.print(Panel(f"No run with ID {run_id!r}.", border_style="red"))
+        err_console.print(
+            ui.error_panel(
+                f"{_s('cli.show.not_found')} {run_id!r}.",
+                lang=_LANG,
+                title="FlowGuard",
+                hint="flowguard history",
+            )
+        )
         raise typer.Exit(code=1)
-    run_status = Status(record["status"])
-    summary = Table(show_header=False, box=None, padding=(0, 1))
-    summary.add_row("[bold]Run", record["run_id"])
-    summary.add_row("[bold]Workflow", record["workflow_name"])
-    summary.add_row("[bold]Status", f"[{_style(run_status)}]{run_status.value}[/]")
-    summary.add_row("[bold]Started", _format_timestamp(record["started_at"]))
-    summary.add_row(
-        "[bold]Duration",
-        _format_duration(record["duration_ms"] or 0.0) if record["finished_at"] else "—",
-    )
-    console.print(Panel(summary, border_style="blue", expand=False))
 
+    console.print(ui.show_header(record, lang=_LANG))
     steps = database.get_step_results(run_id)
     if steps:
-        table = Table(title="Steps", header_style="bold")
-        table.add_column("Step", style="bold")
-        table.add_column("Status")
-        table.add_column("Exit", justify="right")
-        table.add_column("Duration", justify="right")
-        table.add_column("Attempts", justify="right")
+        console.print(ui.show_steps_table(steps, lang=_LANG))
         for entry in steps:
-            step_status = Status(entry["status"])
-            table.add_row(
-                entry["step_name"],
-                f"[{_style(step_status)}]{step_status.value}[/]",
-                str(entry["exit_code"]) if entry["exit_code"] is not None else "—",
-                _format_duration(entry["duration_ms"] or 0.0),
-                str(entry["attempts"]) if entry["attempts"] else "—",
-            )
-        console.print(table)
-        failed = [
-            entry
-            for entry in steps
-            if Status(entry["status"]) not in (Status.SUCCEEDED, Status.SKIPPED) and entry["error"]
-        ]
-        for entry in failed:
-            console.print(
-                Panel(
-                    f"{entry['error']}\n\n[dim]stderr:[/dim] "
-                    f"{(entry['stderr'] or '').strip() or '(empty)'}",
-                    title=f"Step '{entry['step_name']}'",
-                    border_style="red",
-                    expand=False,
-                )
-            )
+            step_status = entry["status"]
+            if step_status not in ("succeeded", "skipped") and entry["error"]:
+                console.print(ui.show_failure_panel(entry, lang=_LANG))
 
 
 @app.command()
@@ -420,15 +382,22 @@ def serve(
     port: Annotated[int, typer.Option(min=1, max=65535, help="Port to listen on.")] = 8642,
     db: Annotated[Path | None, typer.Option(help="Path to the SQLite history database.")] = None,
 ) -> None:
-    """Serve the FlowGuard REST API locally."""
+    """Serve the FlowGuard REST API and web dashboard locally."""
     import uvicorn
 
     from flowguard.api.app import create_app
 
     database_path = db if db is not None else default_db_path()
+    loopback = host in {"127.0.0.1", "localhost", "::1"}
+    console.print(ui.brand_header(_LANG))
     console.print(
-        f"[bold]FlowGuard API[/bold] listening on [cyan]http://{host}:{port}[/cyan] "
-        f"(db: {database_path})"
+        ui.serve_panel(
+            host,
+            port,
+            str(database_path),
+            lang=_LANG,
+            insecure=not loopback,
+        )
     )
     uvicorn.run(create_app(db_path=database_path), host=host, port=port, log_level="info")
 
